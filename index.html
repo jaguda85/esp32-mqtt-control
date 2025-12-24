@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 MQTT Control</title>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 28px;
+        }
+
+        .status-card {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 30px;
+            border-left: 4px solid #667eea;
+        }
+
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            margin: 10px 0;
+            font-size: 16px;
+        }
+
+        .status-label {
+            color: #666;
+            font-weight: 600;
+        }
+
+        .status-value {
+            font-weight: bold;
+        }
+
+        .status-value.online {
+            color: #28a745;
+        }
+
+        .status-value.offline {
+            color: #dc3545;
+        }
+
+        .control-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        button {
+            padding: 15px 30px;
+            font-size: 18px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .btn-on {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-on:hover {
+            background: #218838;
+        }
+
+        .btn-off {
+            background: #dc3545;
+            color: white;
+        }
+
+        .btn-off:hover {
+            background: #c82333;
+        }
+
+        .btn-status {
+            background: #007bff;
+            color: white;
+            grid-column: 1 / -1;
+        }
+
+        .btn-status:hover {
+            background: #0056b3;
+        }
+
+        .config-section {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 2px solid #e9ecef;
+        }
+
+        .config-section h2 {
+            font-size: 18px;
+            color: #333;
+            margin-bottom: 15px;
+        }
+
+        .input-group {
+            margin-bottom: 15px;
+        }
+
+        .input-group label {
+            display: block;
+            color: #666;
+            margin-bottom: 5px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .input-group input {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e9ecef;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+
+        .input-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn-connect {
+            background: #667eea;
+            color: white;
+            width: 100%;
+        }
+
+        .btn-connect:hover {
+            background: #5568d3;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .connecting {
+            animation: pulse 1.5s infinite;
+        }
+
+        .message-log {
+            background: #f8f9fa;
+            border-radius: 5px;
+            padding: 10px;
+            max-height: 150px;
+            overflow-y: auto;
+            font-size: 12px;
+            font-family: 'Courier New', monospace;
+            margin-top: 20px;
+        }
+
+        .message-log div {
+            padding: 2px 0;
+            color: #333;
+        }
+
+        .indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .indicator.on {
+            background: #28a745;
+            box-shadow: 0 0 10px #28a745;
+        }
+
+        .indicator.off {
+            background: #dc3545;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎛️ ESP32 MQTT Control</h1>
+        
+        <div class="status-card">
+            <div class="status-item">
+                <span class="status-label">Połączenie MQTT:</span>
+                <span class="status-value offline" id="mqttStatus">Rozłączono</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Status urządzenia:</span>
+                <span class="status-value" id="deviceStatus">
+                    <span class="indicator off"></span>WYŁĄCZONE
+                </span>
+            </div>
+        </div>
+
+        <div class="control-buttons">
+            <button class="btn-on" onclick="sendCommand('ON')" id="btnOn" disabled>
+                ⚡ Włącz
+            </button>
+            <button class="btn-off" onclick="sendCommand('OFF')" id="btnOff" disabled>
+                🔌 Wyłącz
+            </button>
+            <button class="btn-status" onclick="sendCommand('STATUS')" id="btnStatus" disabled>
+                📊 Sprawdź Status
+            </button>
+        </div>
+
+        <div class="config-section">
+            <h2>⚙️ Konfiguracja</h2>
+            <div class="input-group">
+                <label>Broker MQTT:</label>
+                <input type="text" id="mqttBroker" value="broker.hivemq.com">
+            </div>
+            <div class="input-group">
+                <label>Topic sterowania:</label>
+                <input type="text" id="topicControl" value="esp32/relay/control">
+            </div>
+            <div class="input-group">
+                <label>Topic statusu:</label>
+                <input type="text" id="topicStatus" value="esp32/relay/status">
+            </div>
+            <button class="btn-connect" onclick="connectMQTT()" id="btnConnect">
+                🔗 Połącz
+            </button>
+        </div>
+
+        <div class="message-log" id="messageLog"></div>
+    </div>
+
+    <script>
+        let client = null;
+        let topicControl = "esp32/relay/control";
+        let topicStatus = "esp32/relay/status";
+
+        function addLog(message) {
+            const log = document.getElementById('messageLog');
+            const time = new Date().toLocaleTimeString();
+            const div = document.createElement('div');
+            div.textContent = `[${time}] ${message}`;
+            log.insertBefore(div, log.firstChild);
+            
+            // Ogranicz do 50 wpisów
+            while (log.children.length > 50) {
+                log.removeChild(log.lastChild);
+            }
+        }
+
+        function updateMQTTStatus(status, isConnected) {
+            const statusElement = document.getElementById('mqttStatus');
+            statusElement.textContent = status;
+            statusElement.className = `status-value ${isConnected ? 'online' : 'offline'}`;
+            
+            // Włącz/wyłącz przyciski
+            const buttons = ['btnOn', 'btnOff', 'btnStatus'];
+            buttons.forEach(id => {
+                document.getElementById(id).disabled = !isConnected;
+            });
+            
+            document.getElementById('btnConnect').textContent = 
+                isConnected ? '🔌 Rozłącz' : '🔗 Połącz';
+        }
+
+        function updateDeviceStatus(status) {
+            const statusElement = document.getElementById('deviceStatus');
+            const indicator = statusElement.querySelector('.indicator');
+            
+            if (status === 'ON') {
+                statusElement.innerHTML = '<span class="indicator on"></span>WŁĄCZONE';
+            } else {
+                statusElement.innerHTML = '<span class="indicator off"></span>WYŁĄCZONE';
+            }
+        }
+
+        function connectMQTT() {
+            if (client && client.connected) {
+                client.end();
+                updateMQTTStatus('Rozłączono', false);
+                addLog('Rozłączono z brokerem');
+                return;
+            }
+
+            const broker = document.getElementById('mqttBroker').value;
+            topicControl = document.getElementById('topicControl').value;
+            topicStatus = document.getElementById('topicStatus').value;
+
+            addLog(`Łączenie z ${broker}...`);
+            updateMQTTStatus('Łączenie...', false);
+            document.getElementById('btnConnect').classList.add('connecting');
+
+            // Połączenie WebSocket z MQTT brokerem
+            const clientId = 'web_client_' + Math.random().toString(16).substr(2, 8);
+            const options = {
+                keepalive: 60,
+                clientId: clientId,
+                clean: true,
+                reconnectPeriod: 0
+            };
+
+            client = mqtt.connect(`wss://${broker}:8884/mqtt`, options);
+
+            client.on('connect', function () {
+                updateMQTTStatus('Połączono', true);
+                addLog('✅ Połączono z brokerem MQTT');
+                document.getElementById('btnConnect').classList.remove('connecting');
+                
+                // Subskrybuj topic statusu
+                client.subscribe(topicStatus, function (err) {
+                    if (!err) {
+                        addLog(`📡 Subskrybowano: ${topicStatus}`);
+                        sendCommand('STATUS');
+                    }
+                });
+            });
+
+            client.on('message', function (topic, message) {
+                const msg = message.toString();
+                addLog(`📨 Otrzymano: ${msg}`);
+                updateDeviceStatus(msg);
+            });
+
+            client.on('error', function (error) {
+                addLog(`❌ Błąd: ${error.message}`);
+                updateMQTTStatus('Błąd połączenia', false);
+                document.getElementById('btnConnect').classList.remove('connecting');
+            });
+
+            client.on('close', function () {
+                updateMQTTStatus('Rozłączono', false);
+                addLog('🔌 Połączenie zamknięte');
+                document.getElementById('btnConnect').classList.remove('connecting');
+            });
+        }
+
+        function sendCommand(command) {
+            if (client && client.connected) {
+                client.publish(topicControl, command);
+                addLog(`📤 Wysłano: ${command}`);
+            } else {
+                addLog('❌ Brak połączenia z brokerem');
+                alert('Najpierw połącz się z brokerem MQTT!');
+            }
+        }
+
+        // Auto-połączenie przy załadowaniu strony
+        window.addEventListener('load', function() {
+            addLog('🌐 Strona załadowana');
+        });
+    </script>
+</body>
+</html>
